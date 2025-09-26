@@ -65,17 +65,29 @@ def org_info() -> dict:
     except Exception:
         name = None
     
+    # collects mission statement and cleans it
     additional_info["mission_statement"] =  ((driver.find_element(By.XPATH, "//strong[contains(text(), 'Mission Statement')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["mission_statement"] = additional_info["mission_statement"].replace("Mission Statement\nAn organization's mission statement should provide a description of the group's purpose.\n", "")
 
+    # collects membership requirements and cleans it
     additional_info["membership_requirements"] = ((driver.find_element(By.XPATH, "//strong[contains(text(), 'Membership Requirements')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["membership_requirements"] = additional_info["membership_requirements"].replace("Membership Requirements\nPlease list information about the organizations selection process and include membership requirements if applicable.\n", "")
 
+    # collects how to get involved and cleans it
     additional_info["how_to_get_involved"] = ((driver.find_element(By.XPATH, "//strong[contains(text(), 'How would a student get involved in your organization?')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["how_to_get_involved"] = additional_info["how_to_get_involved"].replace('How would a student get involved in your organization?\nIncluding, but not limited to, "show up to our meetings!" or "you must apply and applications are available," or "email us and let us know you want to be involved!"\n', "")
 
+    # collects general meeting information and when general meetings are and cleans it 
     additional_info["general_meeting_information"] = ((driver.find_element(By.XPATH, "//strong[contains(text(), 'Does your organization have general body meetings that are open for potential new members to attend?')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text + ((driver.find_element(By.XPATH, "//strong[contains(text(), 'How often does your organization have general body meetings?')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["general_meeting_information"] = additional_info["general_meeting_information"].replace("Does your organization have general body meetings that are open for potential new members to attend?\n", "")
+    additional_info["general_meeting_information"] = additional_info["general_meeting_information"].replace("How often does your organization have general body meetings?\n", " ")
 
+    # collects expected time commitment and cleans it 
     additional_info["expected_time_commitment"] = ((driver.find_element(By.XPATH, "//strong[contains(text(), 'How would you rate the time commitment level to be a member of your organization?')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["expected_time_commitment"] = additional_info["expected_time_commitment"].replace("How would you rate the time commitment level to be a member of your organization? \n", "")
 
     additional_info["meeting_schedule"] = ((driver.find_element(By.XPATH, "//strong[contains(text(), 'When are most of the commitments')]")).find_element(By.XPATH, "./parent::div").find_element(By.XPATH, "./parent::div")).text
+    additional_info["meeting_schedule"] = additional_info["meeting_schedule"].replace("When are most of the commitments (meetings, events, office hours, etc.) for your organization? (check all that apply)\n", "")
 
     print(additional_info)
     
