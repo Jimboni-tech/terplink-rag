@@ -130,6 +130,9 @@ def collect_org_info() -> list:
         additional_info["expected_time_commitment"] = None
     return [name, desc, additional_info]
 
+def get_events_info():
+    event_button = driver.find_element(By.XPATH, "//div[@class='rightButton']//span[contains(text(), 'Events')]/parent::div/parent::div/parent::a").get_attribute("href")
+    print(event_button)
 
 
 def collect_orgs() -> pd.DataFrame:
@@ -166,10 +169,12 @@ def collect_orgs() -> pd.DataFrame:
 
 if __name__ == '__main__':
     url = "https://terplink.umd.edu/organizations"
-    driver = init_driver(url)
+    test = 'https://terplink.umd.edu/organization/skiclub'
+    driver = init_driver(test)
+    get_events_info()
     # user_sign_in(driver) # user signs in
     # waits until load button is available
-    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
-    load_orgs() # presses load more button until all orgs are loaded
-    df = collect_orgs() # navigates through each orgs page and collects information
-    driver.quit()
+    #WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
+    #load_orgs() # presses load more button until all orgs are loaded
+    #df = collect_orgs() # navigates through each orgs page and collects information
+    #driver.quit()
