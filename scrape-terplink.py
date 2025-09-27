@@ -6,10 +6,13 @@ import os
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.window import WindowTypes
+from selenium.webdriver.chrome.options import Options
 load_dotenv()
 import pandas as pd
 
 def init_driver(url: str) -> webdriver:
+    chrome_options = Options()
+    chrome_options.add_argument("--headless") 
     driver = webdriver.Chrome()
     driver.get(url)
     return driver
@@ -130,13 +133,38 @@ def collect_org_info() -> list:
         additional_info["expected_time_commitment"] = None
     return [name, desc, additional_info]
 
-def get_events_info():
-    event_button = driver.find_element(By.XPATH, "//div[@class='rightButton']//span[contains(text(), 'Events')]/parent::div/parent::div/parent::a").get_attribute("href")
-    print(event_button)
+def get_events_info(url):
+    event_info = []
+    event_url = url + '/events'
+    original_window = driver.current_window_handle
+    driver.switch_to.new_window(WindowTypes.TAB)
+    driver.get(event_url)
+    events = driver.find_elements(By.XPATH, "//div[@id='org-event-discovery-list']/div/div/a")
+    if len(events) == 0:
+        driver.close()
+        driver.switch_to.window(original_window)
+        return []
+    for event in events:
+        href = event.get_attribute("href")
+        events_window = driver.current_window_handle
+        driver.switch_to.new_window(WindowTypes.TAB)
+        driver.get(href)
+        try:
+            event_info.append(driver.find_element(By.XPATH, "//div[@class='DescriptionText']").text)
+        except Exception:
+            print("cannot find event")
+        driver.close()
+        driver.switch_to.window(events_window)
+
+    driver.close()
+    driver.switch_to.window(original_window)
+    return event_info
+
+    
 
 
 def collect_orgs() -> pd.DataFrame:
-    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information']) # , 'Public Events', 'News', 'Documents'
+    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information', 'Events', 'URL']) # , 'Public Events', 'News', 'Documents'
     # creates a list containing all orgs
     orgs = driver.find_elements(By.CLASS_NAME, "MuiCard-root")
     links = []
@@ -152,12 +180,18 @@ def collect_orgs() -> pd.DataFrame:
     for link in links:
         driver.switch_to.new_window(WindowTypes.TAB)
         driver.get(link)
-        sleep(.2)
-        temp = collect_org_info()
-        df.loc[len(df)] = temp
+        sleep(.5)
+        row = collect_org_info()
+        row.append(get_events_info(link))
+        row.append(link)
+        print(len(row))
+
+
+        df.loc[len(df)] = row
         driver.close()
         driver.switch_to.window(original_window)
-        sleep(.2)
+        sleep(.5)
+        
         
     return df
 
@@ -170,11 +204,11 @@ def collect_orgs() -> pd.DataFrame:
 if __name__ == '__main__':
     url = "https://terplink.umd.edu/organizations"
     test = 'https://terplink.umd.edu/organization/skiclub'
-    driver = init_driver(test)
-    get_events_info()
+    driver = init_driver(url)
     # user_sign_in(driver) # user signs in
     # waits until load button is available
     #WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
     #load_orgs() # presses load more button until all orgs are loaded
-    #df = collect_orgs() # navigates through each orgs page and collects information
-    #driver.quit()
+    df = collect_orgs() # navigates through each orgs page and collects information
+    #print(df.head())
+    driver.quit()
