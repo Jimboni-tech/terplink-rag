@@ -9,11 +9,18 @@ from selenium.webdriver.common.window import WindowTypes
 from selenium.webdriver.chrome.options import Options
 load_dotenv()
 import pandas as pd
+from PyPDF2 import PdfReader
+import docx
+import glob
 
 def init_driver(url: str) -> webdriver:
+    download_dir = os.path.join(os.getcwd(), "selenium_downloads")
+    os.makedirs(download_dir, exist_ok=True)
     chrome_options = Options()
-    chrome_options.add_argument("--headless") 
-    driver = webdriver.Chrome()
+    prefs = {"download.default_directory": download_dir,
+             "download.prompt_for_download": False} 
+    chrome_options.add_experimental_option("prefs", prefs)
+    driver = webdriver.Chrome(options=chrome_options)
     driver.get(url)
     return driver
 # user must sign into terplink
@@ -133,7 +140,7 @@ def collect_org_info() -> list:
         additional_info["expected_time_commitment"] = None
     return [name, desc, additional_info]
 
-def get_events_info(url):
+def get_events_info(url) -> list:
     event_info = []
     event_url = url + '/events'
     original_window = driver.current_window_handle
@@ -160,11 +167,52 @@ def get_events_info(url):
     driver.switch_to.window(original_window)
     return event_info
 
+def get_document():
+    try:
+        document_url = driver.find_element(By.CSS_SELECTOR, '[aria-label="download Constitution/Bylaws"]')
+    except Exception:
+        return ""
+    document_url.click()
+    sleep(2)
+    file_path = None
+    download_dir = os.path.join(os.getcwd(), "selenium_downloads")
+    for i in range(30):
+        files = glob.glob(os.path.join(download_dir, '*'))
+        if files:
+            file_path = max(files, key=os.path.getctime)
+
+            if not file_path.endswith('.crdownload'):
+                break
+        sleep(0.5)
+    
+    if not file_path or file_path.endswith('.crdownload'):
+        print('no')
+        return ""
+    
+    text = ""
+    if file_path.lower().endswith('.pdf'):
+        with open(file_path, "rb") as f:
+            reader = PdfReader(f)
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text
+    elif file_path.lower().endswith('.docx'):
+        doc = docx.Document(file_path)
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+    else:
+        print("Unsupported file type:", file_path)
+        return ""
+
+    
+    return text
     
 
+    
 
 def collect_orgs() -> pd.DataFrame:
-    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information', 'Events', 'URL']) # , 'Public Events', 'News', 'Documents'
+    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information', 'Events','Document', 'URL']) # 'News', 'Documents'
     # creates a list containing all orgs
     orgs = driver.find_elements(By.CLASS_NAME, "MuiCard-root")
     links = []
@@ -183,6 +231,7 @@ def collect_orgs() -> pd.DataFrame:
         sleep(.5)
         row = collect_org_info()
         row.append(get_events_info(link))
+        row.append(get_document())
         row.append(link)
         print(len(row))
 
@@ -210,5 +259,5 @@ if __name__ == '__main__':
     #WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
     #load_orgs() # presses load more button until all orgs are loaded
     df = collect_orgs() # navigates through each orgs page and collects information
-    #print(df.head())
+    print(df.head())
     driver.quit()
