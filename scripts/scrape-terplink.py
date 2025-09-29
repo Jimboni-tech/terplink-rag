@@ -12,6 +12,34 @@ import pandas as pd
 from PyPDF2 import PdfReader
 import docx
 import glob
+import sys
+import contextlib
+import logging
+import warnings
+import shutil
+import tempfile
+import subprocess
+try:
+    from striprtf.striprtf import rtf_to_text
+except ImportError:
+    def rtf_to_text(rtf_str):
+        return rtf_str
+
+# silence noisy loggers and warnings from PDF/third-party libs
+logging.getLogger("PyPDF2").setLevel(logging.CRITICAL)
+logging.getLogger("pikepdf").setLevel(logging.CRITICAL)
+warnings.filterwarnings("ignore")
+
+@contextlib.contextmanager
+def suppress_stderr():
+    """Temporarily redirect sys.stderr to /dev/null to hide library noise."""
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
 
 def init_driver(url: str) -> webdriver:
     download_dir = os.path.join(os.getcwd(), "selenium_downloads")
@@ -20,6 +48,7 @@ def init_driver(url: str) -> webdriver:
     prefs = {"download.default_directory": download_dir,
              "download.prompt_for_download": False} 
     chrome_options.add_experimental_option("prefs", prefs)
+    chrome_options.add_argument('--headless=new')
     driver = webdriver.Chrome(options=chrome_options)
     driver.get(url)
     return driver
@@ -34,7 +63,7 @@ def user_sign_in() -> None:
     sign_in_button.click()
 
 # loads all organizations
-def load_orgs():
+def load():
     while True: 
         sleep(0.5) 
         try:
@@ -44,6 +73,7 @@ def load_orgs():
         except Exception:
             break
 def collect_org_info() -> list:
+
     name = ""
     desc = ""
     additional_info = {
@@ -54,18 +84,15 @@ def collect_org_info() -> list:
         "expected_time_commitment": "",
         "meeting_schedule": ""
     }
-    public_events = ""
-    news = ""
-    docs = ""
     try: 
         name = driver.find_element(By.TAG_NAME, "h1").text
     except Exception:
-        name = None
+        name = ""
     
     try: 
         desc = driver.find_element(By.CLASS_NAME, "bodyText-large.userSupplied").text
     except Exception:
-        name = None
+        desc = ""
     
     # collects mission statement and cleans it
     try:
@@ -140,13 +167,44 @@ def collect_org_info() -> list:
         additional_info["expected_time_commitment"] = None
     return [name, desc, additional_info]
 
+def get_news_info(url) -> list:
+    articles = []
+    news_url = url + '/news'
+    original_window = driver.current_window_handle
+    driver.switch_to.new_window(WindowTypes.TAB)
+    driver.get(news_url)
+    load()
+    news = driver.find_elements(By.XPATH, "//div[@id='news-list']//a")
+    if len(news) == 0:
+        driver.close()
+        driver.switch_to.window(original_window)
+        return []
+    for i in news:
+        href = i.get_attribute("href")
+        news_window = driver.current_window_handle
+        driver.switch_to.new_window(WindowTypes.TAB)
+        driver.get(href)
+        
+
+        try:
+            article = (driver.find_element(By.CLASS_NAME, "MuiCardContent-root.articleText")).text
+            articles.append(article)
+        except Exception:
+            print("no article")
+        driver.close()
+        driver.switch_to.window(news_window)
+    driver.close()
+    driver.switch_to.window(original_window)
+    return articles
+
 def get_events_info(url) -> list:
     event_info = []
     event_url = url + '/events'
     original_window = driver.current_window_handle
     driver.switch_to.new_window(WindowTypes.TAB)
     driver.get(event_url)
-    events = driver.find_elements(By.XPATH, "//div[@id='org-event-discovery-list']/div/div/a")
+    load()
+    events = driver.find_elements(By.XPATH, "//div[@id='org-event-discovery-list']//a")
     if len(events) == 0:
         driver.close()
         driver.switch_to.window(original_window)
@@ -190,29 +248,76 @@ def get_document():
         return ""
     
     text = ""
-    if file_path.lower().endswith('.pdf'):
-        with open(file_path, "rb") as f:
-            reader = PdfReader(f)
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text
-    elif file_path.lower().endswith('.docx'):
-        doc = docx.Document(file_path)
-        for para in doc.paragraphs:
-            text += para.text + "\n"
-    else:
-        print("Unsupported file type:", file_path)
-        return ""
+    try:
+        if file_path.lower().endswith('.pdf'):
+            with suppress_stderr():
+                with open(file_path, "rb") as f:
+                    reader = PdfReader(f)
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text
+        elif file_path.lower().endswith('.docx'):
+            doc = docx.Document(file_path)
+            for para in doc.paragraphs:
+                text += para.text + " "
+        elif file_path.lower().endswith('.doc'):
+            # Try to convert .doc -> .docx using LibreOffice (soffice) if available
+            soffice = shutil.which('soffice') or shutil.which('libreoffice')
+            if soffice:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    try:
+                        subprocess.run([soffice, '--headless', '--convert-to', 'docx', file_path, '--outdir', tmpdir], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        # find converted file
+                        base = os.path.splitext(os.path.basename(file_path))[0]
+                        converted = os.path.join(tmpdir, base + '.docx')
+                        if os.path.exists(converted):
+                            doc = docx.Document(converted)
+                            for para in doc.paragraphs:
+                                text += para.text + " "
+                        else:
+                            print(f"Conversion produced no output for {file_path}")
+                            text = ""
+                    except Exception as e:
+                        print(f"Failed to convert .doc to .docx for {file_path}: {e}")
+                        text = ""
+            else:
+                print(f"LibreOffice (soffice) not found; cannot convert .doc: {file_path}")
+                text = ""
+        elif file_path.lower().endswith('.rtf') or file_path.lower().endswith('.docx.rtf'):
+            try:
+                # open as binary and decode to text for rtf_to_text
+                with open(file_path, 'rb') as f:
+                    raw = f.read()
+                try:
+                    rtf_str = raw.decode('utf-8')
+                except Exception:
+                    try:
+                        rtf_str = raw.decode('latin-1')
+                    except Exception:
+                        rtf_str = raw.decode(errors='ignore')
+                text = rtf_to_text(rtf_str)
+            except Exception as e:
+                print(f'Could not extract .rtf file: {file_path}, error: {e}')
+                text = ""
+        else:
+            print("Unsupported file type:", file_path)
+            text = ""
+    finally:
+        # remove the downloaded file to avoid accumulating files
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
 
-    
     return text
     
 
     
 
 def collect_orgs() -> pd.DataFrame:
-    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information', 'Events','Document', 'URL']) # 'News', 'Documents'
+    df = pd.DataFrame(columns=['Name', 'Description', 'Additional Information', 'Events', 'Document', 'News', 'URL']) 
     # creates a list containing all orgs
     orgs = driver.find_elements(By.CLASS_NAME, "MuiCard-root")
     links = []
@@ -225,21 +330,25 @@ def collect_orgs() -> pd.DataFrame:
 
 
     original_window = driver.current_window_handle
+    count = 1
     for link in links:
+        print(count)
+        print(link)
         driver.switch_to.new_window(WindowTypes.TAB)
         driver.get(link)
         sleep(.5)
         row = collect_org_info()
         row.append(get_events_info(link))
         row.append(get_document())
+        row.append(get_news_info(link))
         row.append(link)
-        print(len(row))
 
 
         df.loc[len(df)] = row
         driver.close()
         driver.switch_to.window(original_window)
         sleep(.5)
+        count += 1
         
         
     return df
@@ -252,12 +361,17 @@ def collect_orgs() -> pd.DataFrame:
 
 if __name__ == '__main__':
     url = "https://terplink.umd.edu/organizations"
-    test = 'https://terplink.umd.edu/organization/skiclub'
+    test = 'https://terplink.umd.edu/organization/salvation-and-praise'
     driver = init_driver(url)
-    # user_sign_in(driver) # user signs in
     # waits until load button is available
-    #WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
-    #load_orgs() # presses load more button until all orgs are loaded
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//div[@class='outlinedButton']/button")))
+    load() # presses load more button until all orgs are loaded
     df = collect_orgs() # navigates through each orgs page and collects information
-    print(df.head())
+
+
+    for col in ['Name', 'Description', 'Document']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace('\n', ' ', regex=False).str.replace('\r', ' ', regex=False)
+
+    df.to_csv('../data/org-data-unprocessed.csv')
     driver.quit()
