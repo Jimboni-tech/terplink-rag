@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --font-sans: var(--font-inter);
+}
+
+/* Design tokens are defined directly on :root; removing @theme for compatibility */
+
+/* Always use light theme colors */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-tap-highlight-color: transparent; /* Remove mobile Safari blue tap highlight */
+}
